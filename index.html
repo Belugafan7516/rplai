@@ -21,6 +21,25 @@
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        
+        .ticker-wrap {
+            width: 100%;
+            overflow: hidden;
+            background-color: #0f172a;
+            border-bottom: 1px solid #1e293b;
+            height: 30px;
+            display: flex;
+            align-items: center;
+        }
+        .ticker {
+            display: inline-block;
+            white-space: nowrap;
+            animation: ticker 30s linear infinite;
+        }
+        @keyframes ticker {
+            0% { transform: translateX(100%); }
+            100% { transform: translateX(-100%); }
+        }
     </style>
 </head>
 <body>
@@ -28,24 +47,43 @@
 
     <!-- Main Application Script -->
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
+        import React, { useState, useEffect, useRef, useMemo } from 'https://esm.sh/react@18.2.0';
         import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
         
         import { 
-            ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine 
+            ComposedChart, Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell 
         } from 'https://esm.sh/recharts@2.12.2?deps=react@18.2.0,react-dom@18.2.0';
 
         import { 
             TrendingUp, Activity, AlertTriangle, Search, Zap, Brain, Lock, RefreshCw, 
-            BarChart2, X, Globe, Star, Filter, ArrowUpDown, Sparkles, ShieldCheck, Key, ShieldAlert, CheckCircle, Cpu
+            BarChart2, X, Globe, Star, Filter, ArrowUpDown, Sparkles, ShieldCheck, Key, ShieldAlert, CheckCircle, Cpu, Wallet, DollarSign, Briefcase
         } from 'https://esm.sh/lucide-react@0.344.0?deps=react@18.2.0';
 
         // --- CONFIGURATION ---
-        const TURNSTILE_SITE_KEY = "1x00000000000000000000AA"; // Test Key (Always passes)
-        const REQUEST_LIMIT = 10;
+        const TURNSTILE_SITE_KEY = "0x4AAAAAACZBwcHHoM4nJcWq"; 
+        const REQUEST_LIMIT = 15;
         // ---------------------
 
-        // --- Helper Component: Deployment Status ---
+        // --- Helper Component: News Ticker ---
+        const NewsTicker = () => {
+            const headlines = [
+                "BITCOIN CRASHES TO 100K THEN RECOVERS IN 2 SECONDS",
+                "ELON MUSK TWEETS A DOG EMOJI, MARKETS CONFUSED",
+                "RUGPULL DETECTED IN SECTOR 7G",
+                "NEW ATH FOR 'SCAMCOIN' - INVESTORS CELEBRATE",
+                "FED ANNOUNCES RATES WILL STAY 'VIBES BASED'",
+                "WHALE ALERT: 1000 ETH MOVED TO UNKNOWN WALLET",
+                "DEVELOPER FORGETS TO LOCK LIQUIDITY, OOPS",
+            ];
+            return (
+                <div className="ticker-wrap">
+                    <div className="ticker text-xs font-mono text-emerald-400">
+                        {headlines.join(" +++ ")} +++ {headlines.join(" +++ ")}
+                    </div>
+                </div>
+            );
+        };
+
         const DeploymentBanner = () => {
             const [isVisible, setIsVisible] = useState(true);
             const isLocal = window.location.protocol === 'file:' || 
@@ -55,14 +93,10 @@
             if (!isLocal || !isVisible) return null;
 
             return (
-                <div className="bg-amber-500/10 border-b border-amber-500/20 text-amber-200 px-4 py-3 relative animate-in slide-in-from-top duration-500">
-                    <div className="max-w-7xl mx-auto flex items-start gap-3">
-                        <ShieldAlert className="text-amber-500 shrink-0 mt-0.5" size={20} />
-                        <div className="text-sm">
-                            <strong className="font-bold text-amber-400 block mb-1">Local Environment Detected</strong>
-                            Cloudflare Access protection requires deployment. 
-                        </div>
-                        <button onClick={() => setIsVisible(false)} className="ml-auto text-amber-400 hover:text-white"><X size={18} /></button>
+                <div className="bg-amber-500/10 border-b border-amber-500/20 text-amber-200 px-4 py-2 relative text-xs">
+                    <div className="max-w-7xl mx-auto flex items-center justify-between">
+                        <span className="flex items-center gap-2"><ShieldAlert size={14}/> <strong>Local Mode:</strong> Security features disabled. Deploy to enable Cloudflare Access.</span>
+                        <button onClick={() => setIsVisible(false)}><X size={14} /></button>
                     </div>
                 </div>
             );
@@ -71,27 +105,26 @@
         const RugplayAnalyzer = () => {
             // --- Core State ---
             const [apiKey, setApiKey] = useState('rgpl_gdgTTwnlllKSXsFOcSeLkDpwkgPaWXiooomdppdeFOqOnpLgVjPipkMgjWLzIBcZ');
-            // Init Gemini Key from LocalStorage (Simulated Env Var)
             const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('rugplay_gemini_key') || '');
             const proxyUrl = 'https://rplsend.powerstudios.workers.dev/?url=';
+
+            // --- Wallet / Trading State ---
+            const [balance, setBalance] = useState(() => parseFloat(localStorage.getItem('rugplay_balance')) || 10000);
+            const [holdings, setHoldings] = useState(() => JSON.parse(localStorage.getItem('rugplay_holdings')) || {});
+            const [tradeAmount, setTradeAmount] = useState('');
 
             // --- UI State ---
             const [activeTab, setActiveTab] = useState('dashboard');
             const [isLoading, setIsLoading] = useState(false);
             const [isDetailLoading, setIsDetailLoading] = useState(false);
             const [isAiLoading, setIsAiLoading] = useState(false);
-            
-            // --- Security / Rate Limiting State ---
             const [requestCount, setRequestCount] = useState(0);
             const [showTurnstile, setShowTurnstile] = useState(false);
 
             // Feature States
             const [searchQuery, setSearchQuery] = useState('');
             const [sortOption, setSortOption] = useState('default');
-            const [watchlist, setWatchlist] = useState(() => {
-                const saved = localStorage.getItem('rugplay_watchlist');
-                return saved ? JSON.parse(saved) : [];
-            });
+            const [watchlist, setWatchlist] = useState(() => JSON.parse(localStorage.getItem('rugplay_watchlist')) || []);
 
             // Data
             const [marketData, setMarketData] = useState([]); 
@@ -108,6 +141,8 @@
             // --- Persistence ---
             useEffect(() => { localStorage.setItem('rugplay_watchlist', JSON.stringify(watchlist)); }, [watchlist]);
             useEffect(() => { localStorage.setItem('rugplay_gemini_key', geminiKey); }, [geminiKey]);
+            useEffect(() => { localStorage.setItem('rugplay_balance', balance); }, [balance]);
+            useEffect(() => { localStorage.setItem('rugplay_holdings', JSON.stringify(holdings)); }, [holdings]);
 
             const toggleWatchlist = (e, id) => {
                 e.stopPropagation();
@@ -116,14 +151,12 @@
 
             // --- Helpers ---
             const getUrl = (endpoint) => proxyUrl ? `${proxyUrl}${encodeURIComponent(endpoint)}` : endpoint;
-
             const getHeaders = () => {
                 let cleanKey = apiKey.trim();
                 if (cleanKey.toLowerCase().startsWith('bearer ')) cleanKey = cleanKey.slice(7).trim();
                 return { 'Authorization': `Bearer ${cleanKey}`, 'Accept': 'application/json' };
             };
 
-            // --- Rate Limit Checker ---
             const checkRateLimit = () => {
                 if (requestCount >= REQUEST_LIMIT) {
                     setShowTurnstile(true);
@@ -133,71 +166,95 @@
                 return true;
             };
 
-            const handleTurnstileSuccess = (token) => {
-                console.log("Turnstile Verified:", token);
-                setTimeout(() => {
-                    setRequestCount(0);
-                    setShowTurnstile(false);
-                }, 500); 
+            const handleTurnstileSuccess = () => {
+                setTimeout(() => { setRequestCount(0); setShowTurnstile(false); }, 500); 
             };
 
-            // --- Data Processing ---
-            const getProcessedList = () => {
-                let list = [];
-                if (activeTab === 'dashboard') list = [...marketData];
-                else if (activeTab === 'predictions') list = [...predictionMarkets];
-                else if (activeTab === 'watchlist') {
-                    return {
-                        coins: marketData.filter(c => watchlist.includes(c.symbol)),
-                        preds: predictionMarkets.filter(p => watchlist.includes(p.id))
-                    };
+            // --- Trading Logic ---
+            const executeTrade = (action) => {
+                if (!selectedItem || selectedItem.type !== 'coin') return;
+                const amount = parseFloat(tradeAmount);
+                if (isNaN(amount) || amount <= 0) {
+                    setError("Please enter a valid amount.");
+                    setShowErrorModal(true);
+                    return;
                 }
 
-                if (searchQuery) {
-                    list = list.filter(item => {
-                        const name = item.name || item.question || '';
-                        const sym = item.symbol || '';
-                        return name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                               sym.toLowerCase().includes(searchQuery.toLowerCase());
+                const price = parseFloat(selectedItem.price || selectedItem.currentPrice);
+                const symbol = selectedItem.symbol;
+
+                if (action === 'BUY') {
+                    if (amount > balance) {
+                        setError("Insufficient funds!");
+                        setShowErrorModal(true);
+                        return;
+                    }
+                    setBalance(prev => prev - amount);
+                    setHoldings(prev => {
+                        const currentQty = prev[symbol]?.qty || 0;
+                        const currentCost = prev[symbol]?.avgCost || 0;
+                        const newQty = amount / price;
+                        // Weighted average cost basis
+                        const totalCost = (currentQty * currentCost) + amount;
+                        const newTotalQty = currentQty + newQty;
+                        return { ...prev, [symbol]: { qty: newTotalQty, avgCost: totalCost / newTotalQty } };
+                    });
+                } else if (action === 'SELL') {
+                    const currentHolding = holdings[symbol];
+                    if (!currentHolding || (amount / price) > currentHolding.qty) {
+                        setError("Insufficient coin balance!");
+                        setShowErrorModal(true);
+                        return;
+                    }
+                    const sellQty = amount / price;
+                    setBalance(prev => prev + amount);
+                    setHoldings(prev => {
+                        const newQty = prev[symbol].qty - sellQty;
+                        if (newQty <= 0.000001) {
+                            const newHoldings = { ...prev };
+                            delete newHoldings[symbol];
+                            return newHoldings;
+                        }
+                        return { ...prev, [symbol]: { ...prev[symbol], qty: newQty } };
                     });
                 }
-
-                if (sortOption === 'gainers') list.sort((a, b) => (Number(b.change24h || 0) - Number(a.change24h || 0)));
-                else if (sortOption === 'losers') list.sort((a, b) => (Number(a.change24h || 0) - Number(b.change24h || 0)));
-                else if (sortOption === 'volume') list.sort((a, b) => (Number(b.volume24h || b.totalAmount || 0) - Number(a.volume24h || a.totalAmount || 0)));
-
-                return list;
+                setTradeAmount('');
             };
-            const processedList = getProcessedList();
+
+            const getPortfolioValue = () => {
+                let value = 0;
+                Object.keys(holdings).forEach(sym => {
+                    const coin = marketData.find(c => c.symbol === sym);
+                    const price = coin ? (coin.price || coin.currentPrice) : 0;
+                    value += holdings[sym].qty * price;
+                });
+                return value;
+            };
 
             // --- Fetchers ---
             const fetchOverview = async () => {
-                if (!apiKey) return;
-                if (!checkRateLimit()) return;
-
+                if (!apiKey || !checkRateLimit()) return;
                 setIsLoading(true);
                 try {
                     const headers = getHeaders();
-                    const coinsUrl = getUrl('https://rugplay.com/api/v1/top');
-                    const coinsRes = await fetch(coinsUrl, { headers });
-                    if (coinsRes.status === 401) throw new Error("Unauthorized: API Key rejected.");
-                    if (!coinsRes.ok) throw new Error(`Coins API: ${coinsRes.status}`);
+                    // Parallel fetch
+                    const [coinsRes, hopiumRes] = await Promise.all([
+                        fetch(getUrl('https://rugplay.com/api/v1/top'), { headers }),
+                        fetch(getUrl('https://rugplay.com/api/v1/hopium?status=ACTIVE&limit=20'), { headers })
+                    ]);
+
+                    if (coinsRes.status === 401 || hopiumRes.status === 401) throw new Error("Unauthorized: API Key rejected.");
+                    
                     const coinsJson = await coinsRes.json();
                     setMarketData(coinsJson.coins || []);
 
-                    const hopiumUrl = getUrl('https://rugplay.com/api/v1/hopium?status=ACTIVE&limit=20');
-                    const hopiumRes = await fetch(hopiumUrl, { headers });
-                    if (!hopiumRes.ok && hopiumRes.status !== 401) throw new Error(`Hopium API: ${hopiumRes.status}`);
-                    if (hopiumRes.status === 401) throw new Error("Unauthorized: API Key rejected."); 
                     const hopiumJson = await hopiumRes.json();
                     setPredictionMarkets(hopiumJson.questions || []);
                     
                     setError(null); 
                 } catch (err) {
                     console.error("Fetch error:", err);
-                    let msg = err.message || "Connection failed";
-                    if (msg.includes('Failed to fetch')) msg = "Network Error: Blocked. Check Proxy connection.";
-                    setError(msg);
+                    setError(err.message.includes('Failed to fetch') ? "Network Error. Check Proxy." : err.message);
                     setShowErrorModal(true);
                 } finally {
                     setIsLoading(false);
@@ -205,9 +262,7 @@
             };
 
             const fetchDetails = async (item, type) => {
-                if (!apiKey) return;
-                if (!checkRateLimit()) return;
-
+                if (!apiKey || !checkRateLimit()) return;
                 setSelectedItem({ ...item, type });
                 setIsDetailLoading(true);
                 setChartData([]); 
@@ -218,25 +273,33 @@
                     let history = [];
 
                     if (type === 'coin') {
-                        const url = getUrl(`https://rugplay.com/api/v1/coin/${item.symbol}?timeframe=1h`);
-                        const res = await fetch(url, { headers });
-                        if (res.status === 401) throw new Error("Unauthorized Key");
+                        const res = await fetch(getUrl(`https://rugplay.com/api/v1/coin/${item.symbol}?timeframe=1h`), { headers });
                         if (!res.ok) throw new Error(`Error: ${res.status}`);
                         const data = await res.json();
+                        
+                        // Calculate SMA
+                        const smaPeriod = 5;
                         if (data.candlestickData) {
-                            history = data.candlestickData.map(c => {
+                            history = data.candlestickData.map((c, i, arr) => {
                                 const volItem = data.volumeData ? data.volumeData.find(v => v.time === c.time) : null;
+                                // Simple Moving Average Logic
+                                let sma = null;
+                                if (i >= smaPeriod - 1) {
+                                    const sum = arr.slice(i - (smaPeriod - 1), i + 1).reduce((acc, curr) => acc + curr.close, 0);
+                                    sma = sum / smaPeriod;
+                                }
                                 return {
                                     time: new Date(c.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' }),
-                                    value: c.close, open: c.open, high: c.high, low: c.low, volume: volItem ? volItem.volume : 0, trend: c.close >= c.open ? 'up' : 'down'
+                                    value: c.close, open: c.open, high: c.high, low: c.low, 
+                                    volume: volItem ? volItem.volume : 0, 
+                                    sma: sma,
+                                    trend: c.close >= c.open ? 'up' : 'down'
                                 };
                             });
                         }
                         analyzeTarget(data.coin || item, 'coin');
                     } else {
-                        const url = getUrl(`https://rugplay.com/api/v1/hopium/${item.id}`);
-                        const res = await fetch(url, { headers });
-                        if (res.status === 401) throw new Error("Unauthorized Key");
+                        const res = await fetch(getUrl(`https://rugplay.com/api/v1/hopium/${item.id}`), { headers });
                         if (!res.ok) throw new Error(`Error: ${res.status}`);
                         const data = await res.json();
                         if (data.probabilityHistory) {
@@ -252,7 +315,6 @@
                     }
                     setChartData(history);
                 } catch (err) {
-                    console.error("Detail error:", err);
                     setError(err.message);
                     setShowErrorModal(true);
                 } finally {
@@ -269,10 +331,7 @@
             }, [apiKey]);
 
             const runAiAnalysis = async () => {
-                if (!selectedItem) return;
-                
-                if (!checkRateLimit()) return;
-
+                if (!selectedItem || !checkRateLimit()) return;
                 if (!geminiKey) {
                     setError("Please enter your Gemini API Key in the header.");
                     setShowErrorModal(true);
@@ -291,14 +350,7 @@
                         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json" } })
                     });
 
-                    // Enhanced Error Handling for 403
-                    if (!response.ok) {
-                        if (response.status === 403) {
-                            throw new Error("API Key Permission Denied (403). Check Google Cloud Console restrictions.");
-                        }
-                        throw new Error(`AI Oracle failed: ${response.status} ${response.statusText}`);
-                    }
-                    
+                    if (!response.ok) throw new Error(`AI Oracle failed: ${response.status}`);
                     const result = await response.json();
                     const aiData = JSON.parse(result.candidates[0].content.parts[0].text);
 
@@ -315,8 +367,7 @@
                     });
                     setShowResultModal(true);
                 } catch (err) {
-                    console.error("AI Error:", err);
-                    setError(err.message || "AI Oracle Failed. Check console.");
+                    setError(err.message);
                     setShowErrorModal(true);
                 } finally {
                     setIsAiLoading(false);
@@ -337,17 +388,14 @@
                     const mcap = data.marketCap || 0;
                     if (vol > (mcap * 0.1) && vol > 10000) isWhale = true;
                     riskScore = Math.min(99, (Math.abs(change) / 10) + (mcap < 10000 ? 50 : 0));
-                    if (change > 20 && vol > 10000) { sentiment = "Bullish"; prediction = "MOMENTUM UP"; details = "High volume breakout detected."; } 
-                    else if (change < -15) { sentiment = "Bearish"; prediction = "OVERSOLD"; details = "Sharp decline. Watch for bounce."; } 
-                    else { sentiment = "Neutral"; prediction = "HOLD"; details = "Market consolidating."; }
+                    if (change > 20) { sentiment = "Bullish"; prediction = "BUY"; details = "Strong momentum."; } 
+                    else if (change < -15) { sentiment = "Bearish"; prediction = "SELL"; details = "Dumping hard."; } 
+                    else { sentiment = "Neutral"; prediction = "HOLD"; details = "Consolidating."; }
                 } else {
                     const yes = data.yesPercentage || 50;
-                    const totalPot = data.totalAmount || 0;
-                    if (totalPot > 50000) isWhale = true;
-                    riskScore = totalPot < 100 ? 80 : 20;
-                    if (yes > 85) { sentiment = "Bullish (Yes)"; prediction = "PREDICT: YES"; details = "Consensus is strong."; } 
-                    else if (yes < 15) { sentiment = "Bearish (No)"; prediction = "PREDICT: NO"; details = "Market rejected outcome."; } 
-                    else { sentiment = "Uncertain"; prediction = "VOLATILE"; details = "Too close to call."; }
+                    if (yes > 85) { sentiment = "Bullish"; prediction = "YES"; details = "High probability."; } 
+                    else if (yes < 15) { sentiment = "Bearish"; prediction = "NO"; details = "Unlikely."; } 
+                    else { sentiment = "Uncertain"; prediction = "UNSURE"; details = "Too close to call."; }
                 }
 
                 setAnalysisResult({
@@ -357,13 +405,21 @@
                 });
             };
 
-            const getChartColors = () => {
-                if (chartData.length < 2) return { stroke: '#6366f1', fill: '#6366f1' };
-                const start = chartData[0].value;
-                const end = chartData[chartData.length - 1].value;
-                return end >= start ? { stroke: '#10b981', fill: '#10b981' } : { stroke: '#f43f5e', fill: '#f43f5e' };
+            const getProcessedList = () => {
+                let list = activeTab === 'dashboard' ? [...marketData] : 
+                           activeTab === 'predictions' ? [...predictionMarkets] : 
+                           marketData.filter(c => watchlist.includes(c.symbol)); // Watchlist fallback
+
+                if (searchQuery) {
+                    list = list.filter(item => (item.name || item.question || item.symbol || '').toLowerCase().includes(searchQuery.toLowerCase()));
+                }
+                
+                if (sortOption === 'gainers') list.sort((a, b) => (Number(b.change24h || 0) - Number(a.change24h || 0)));
+                else if (sortOption === 'losers') list.sort((a, b) => (Number(a.change24h || 0) - Number(b.change24h || 0)));
+                else if (sortOption === 'volume') list.sort((a, b) => (Number(b.volume24h || b.totalAmount || 0) - Number(a.volume24h || a.totalAmount || 0)));
+
+                return list;
             };
-            const chartColors = getChartColors();
 
             const CustomTooltip = ({ active, payload }) => {
                 if (active && payload && payload.length) {
@@ -372,65 +428,34 @@
                         <div className="bg-slate-900 border border-slate-700 p-3 rounded-lg shadow-xl text-xs space-y-1">
                             <div className="font-bold text-slate-300 mb-2">{data.time}</div>
                             <div className="flex justify-between gap-4"><span className="text-slate-500">Price:</span> <span className="font-mono text-white">${Number(data.value).toFixed(2)}</span></div>
-                            {data.high && <div className="flex justify-between gap-4"><span className="text-slate-500">High:</span> <span className="font-mono text-emerald-400">${Number(data.high).toFixed(2)}</span></div>}
-                            {data.low && <div className="flex justify-between gap-4"><span className="text-slate-500">Low:</span> <span className="font-mono text-rose-400">${Number(data.low).toFixed(2)}</span></div>}
-                            {data.volume > 0 && <div className="flex justify-between gap-4 border-t border-slate-800 pt-1 mt-1"><span className="text-slate-500">Vol:</span> <span className="font-mono text-amber-400">{Math.floor(data.volume).toLocaleString()}</span></div>}
+                            {data.sma && <div className="flex justify-between gap-4"><span className="text-purple-400">SMA:</span> <span className="font-mono text-purple-300">${Number(data.sma).toFixed(2)}</span></div>}
+                            <div className="flex justify-between gap-4 border-t border-slate-800 pt-1 mt-1"><span className="text-slate-500">Vol:</span> <span className="font-mono text-amber-400">{Math.floor(data.volume).toLocaleString()}</span></div>
                         </div>
                     );
                 }
                 return null;
             };
 
-            const StatCard = ({ title, value, subtext, icon: Icon, trend }) => (
-                <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm">
-                    <div className="flex justify-between items-start mb-2">
-                        <span className="text-slate-400 text-sm font-medium">{title}</span>
-                        <div className={`p-2 rounded-lg ${trend === 'up' ? 'bg-emerald-500/10 text-emerald-400' : trend === 'down' ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-700 text-slate-400'}`}>
-                            <Icon size={18} />
-                        </div>
-                    </div>
-                    <div className="text-2xl font-bold text-slate-100 truncate">{value}</div>
-                    {subtext && <div className={`text-xs mt-1 ${trend === 'up' ? 'text-emerald-400' : 'text-slate-500'}`}>{subtext}</div>}
-                </div>
-            );
-
             const ListItem = ({ item, type }) => {
                 const isCoin = type === 'coin';
                 const id = isCoin ? item.symbol : item.id;
                 const isWatched = watchlist.includes(id);
-
                 return (
-                    <div 
-                        onClick={() => fetchDetails(item, type)}
-                        className={`px-6 py-4 flex items-center justify-between cursor-pointer transition-colors border-l-2 border-transparent hover:bg-slate-800/50 ${selectedItem?.symbol === item.symbol || selectedItem?.id === item.id ? 'bg-indigo-500/10 border-indigo-500' : ''}`}
-                    >
+                    <div onClick={() => fetchDetails(item, type)} className={`px-6 py-4 flex items-center justify-between cursor-pointer transition-colors border-l-2 border-transparent hover:bg-slate-800/50 ${selectedItem?.symbol === item.symbol || selectedItem?.id === item.id ? 'bg-indigo-500/10 border-indigo-500' : ''}`}>
                         <div className="flex items-center gap-3">
-                            <button onClick={(e) => toggleWatchlist(e, id)} className="text-slate-600 hover:text-amber-400 transition-colors">
-                                <Star size={16} fill={isWatched ? "#fbbf24" : "none"} className={isWatched ? "text-amber-400" : ""} />
-                            </button>
+                            <button onClick={(e) => toggleWatchlist(e, id)} className="text-slate-600 hover:text-amber-400 transition-colors"><Star size={16} fill={isWatched ? "#fbbf24" : "none"} className={isWatched ? "text-amber-400" : ""} /></button>
                             {isCoin ? (
                                 <>
                                     <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-300">{item.symbol[0]}</div>
-                                    <div>
-                                        <div className="font-bold text-slate-200">{item.symbol}</div>
-                                        <div className="text-xs text-slate-500">{item.name}</div>
-                                    </div>
+                                    <div><div className="font-bold text-slate-200">{item.symbol}</div><div className="text-xs text-slate-500">{item.name}</div></div>
                                 </>
                             ) : (
-                                <div>
-                                    <div className="font-bold text-slate-200 text-sm line-clamp-1 max-w-[180px]">{item.question}</div>
-                                    <div className="text-xs text-slate-500 flex items-center gap-2">
-                                        <span>YES {item.yesPercentage}%</span><span className="text-slate-600">|</span><span>${(item.totalAmount/1000).toFixed(1)}k</span>
-                                    </div>
-                                </div>
+                                <div><div className="font-bold text-slate-200 text-sm line-clamp-1 max-w-[180px]">{item.question}</div><div className="text-xs text-slate-500 flex items-center gap-2"><span>YES {item.yesPercentage}%</span></div></div>
                             )}
                         </div>
                         <div className="text-right min-w-[80px]">
                             {isCoin ? (
-                                <>
-                                    <div className="font-mono text-slate-200">${Number(item.price || item.currentPrice).toFixed(2)}</div>
-                                    <div className={`text-xs font-bold ${Number(item.change24h) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{Number(item.change24h) > 0 ? '+' : ''}{Number(item.change24h).toFixed(2)}%</div>
-                                </>
+                                <><div className="font-mono text-slate-200">${Number(item.price || item.currentPrice).toFixed(2)}</div><div className={`text-xs font-bold ${Number(item.change24h) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{Number(item.change24h) > 0 ? '+' : ''}{Number(item.change24h).toFixed(2)}%</div></>
                             ) : <div className="text-xs font-mono text-slate-400">#{item.id}</div>}
                         </div>
                     </div>
@@ -439,32 +464,24 @@
 
             const TurnstileWidget = ({ onVerify }) => {
                 const containerRef = useRef(null);
-                useEffect(() => {
-                    if (containerRef.current && window.turnstile) {
-                        window.turnstile.render(containerRef.current, {
-                            sitekey: TURNSTILE_SITE_KEY,
-                            callback: (token) => onVerify(token),
-                        });
-                    }
-                }, []);
+                useEffect(() => { if (containerRef.current && window.turnstile) window.turnstile.render(containerRef.current, { sitekey: TURNSTILE_SITE_KEY, callback: onVerify }); }, []);
                 return <div ref={containerRef} className="my-4"></div>;
             };
+
+            const processedList = getProcessedList();
+            const chartColors = chartData.length < 2 ? { stroke: '#6366f1' } : (chartData[chartData.length-1].value >= chartData[0].value ? { stroke: '#10b981' } : { stroke: '#f43f5e' });
 
             return (
                 <div className="min-h-screen bg-slate-950 text-slate-200 font-sans p-4 md:p-8 relative">
                     <DeploymentBanner />
+                    <NewsTicker />
                     
                     {/* TURNSTILE MODAL */}
                     {showTurnstile && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4 animate-in fade-in duration-300">
                             <div className="bg-slate-900 border border-indigo-500 p-8 rounded-2xl max-w-sm w-full text-center shadow-2xl">
-                                <ShieldCheck size={48} className="text-indigo-500 mx-auto mb-4" />
-                                <h3 className="text-2xl font-bold text-white mb-2">Security Check</h3>
-                                <p className="text-slate-400 mb-6">Please verify you are human to continue analyzing the market.</p>
-                                <div className="flex justify-center">
-                                    <TurnstileWidget onVerify={handleTurnstileSuccess} />
-                                </div>
-                                <div className="mt-4 text-xs text-slate-600">Requests made: {requestCount}</div>
+                                <ShieldCheck size={48} className="text-indigo-500 mx-auto mb-4" /><h3 className="text-2xl font-bold text-white mb-2">Security Check</h3>
+                                <div className="flex justify-center"><TurnstileWidget onVerify={handleTurnstileSuccess} /></div>
                             </div>
                         </div>
                     )}
@@ -476,23 +493,13 @@
                                 <button onClick={() => setShowResultModal(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={24} /></button>
                                 <div className="flex flex-col items-center text-center space-y-6">
                                     <div className="relative">
-                                        <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 ${analysisResult.isAi ? 'bg-indigo-500 text-white border-white animate-pulse' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500'}`}>
-                                            {analysisResult.isAi ? <Sparkles size={40} /> : <Brain size={40} />}
-                                        </div>
+                                        <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 ${analysisResult.isAi ? 'bg-indigo-500 text-white border-white animate-pulse' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500'}`}>{analysisResult.isAi ? <Sparkles size={40} /> : <Brain size={40} />}</div>
                                         {analysisResult.isWhale && <div className="absolute -top-2 -right-2 bg-amber-500 text-slate-900 text-[10px] font-bold px-2 py-1 rounded-full animate-bounce">WHALE!</div>}
                                     </div>
-                                    <div>
-                                        <div className="text-sm font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center justify-center gap-2">{analysisResult.isAi ? <>✨ AI GENERATED ✨</> : analysisResult.type + " COMPLETE"}</div>
-                                        <h2 className="text-3xl font-black text-white">{analysisResult.target}</h2>
-                                    </div>
+                                    <div><div className="text-sm font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center justify-center gap-2">{analysisResult.isAi ? <>✨ AI GENERATED ✨</> : analysisResult.type + " COMPLETE"}</div><h2 className="text-3xl font-black text-white">{analysisResult.target}</h2></div>
                                     <div className="w-full bg-slate-800/50 rounded-xl p-6 border border-slate-700">
                                         <div className="text-sm text-slate-400 mb-1">PREDICTION</div>
-                                        <div className={`text-4xl font-black mb-4 ${
-                                            ['YES', 'BUY'].includes(analysisResult.prediction) ? 'text-emerald-400' : 
-                                            ['NO', 'SELL'].includes(analysisResult.prediction) ? 'text-rose-400' : 'text-amber-400'
-                                        }`}>
-                                            {analysisResult.prediction}
-                                        </div>
+                                        <div className={`text-4xl font-black mb-4 ${['YES', 'BUY'].includes(analysisResult.prediction) ? 'text-emerald-400' : ['NO', 'SELL'].includes(analysisResult.prediction) ? 'text-rose-400' : 'text-amber-400'}`}>{analysisResult.prediction}</div>
                                         <p className={`text-slate-300 italic ${analysisResult.isAi ? 'font-serif text-lg text-indigo-200' : ''}`}>"{analysisResult.details}"</p>
                                     </div>
                                 </div>
@@ -500,43 +507,27 @@
                         </div>
                     )}
 
-                    {/* ERROR MODAL */}
-                    {showErrorModal && error && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 animate-in fade-in duration-200">
-                            <div className="bg-rose-950/90 border border-rose-500 p-8 rounded-2xl max-w-md w-full relative shadow-2xl shadow-rose-900/50 animate-in shake duration-300">
-                                <button onClick={() => setShowErrorModal(false)} className="absolute top-4 right-4 text-rose-300 hover:text-white"><X size={24} /></button>
-                                <div className="flex flex-col items-center text-center">
-                                    <AlertTriangle size={48} className="text-rose-500 mb-4" />
-                                    <h3 className="text-xl font-bold text-white mb-2">System Alert</h3>
-                                    <p className="text-rose-200 mb-6 text-sm">{error}</p>
-                                    <button onClick={() => setShowErrorModal(false)} className="bg-rose-600 hover:bg-rose-500 text-white font-bold py-2 px-4 rounded-lg">Close</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                     {/* HEADER */}
-                    <header className="max-w-7xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <header className="max-w-7xl mx-auto my-8 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div className="flex items-center gap-3">
                             <div className="bg-indigo-600 p-2 rounded-lg"><Activity className="text-white" size={24} /></div>
-                            <div>
-                                <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">Rugplay Analytics</h1>
-                                <p className="text-slate-500 text-xs uppercase tracking-wider">v2.4 SECURE</p>
-                            </div>
+                            <div><h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">Rugplay Analytics</h1><p className="text-slate-500 text-xs uppercase tracking-wider">v3.0 ULTRA</p></div>
                         </div>
                         <div className="flex flex-col sm:flex-row items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800">
+                            <div className="flex items-center gap-3 px-4 py-2 bg-slate-950/80 rounded border border-slate-700">
+                                <Wallet size={16} className="text-emerald-400" />
+                                <div className="text-sm font-mono text-emerald-400">${balance.toLocaleString()} <span className="text-slate-500 text-xs">VIRTUAL</span></div>
+                                <div className="text-xs text-slate-500 border-l border-slate-700 pl-3">PnL: ${(getPortfolioValue() + balance - 10000).toFixed(2)}</div>
+                            </div>
                             <div className="flex items-center gap-2 px-3 bg-slate-950/50 rounded h-10 w-full sm:w-auto border border-slate-800">
                                 <Key size={14} className={apiKey ? "text-emerald-400" : "text-slate-500"} />
-                                <input type="password" placeholder="Rugplay Key (rgpl_...)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="bg-transparent border-none text-xs focus:ring-0 w-32 text-slate-300 placeholder-slate-600" />
+                                <input type="password" placeholder="Rugplay Key" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="bg-transparent border-none text-xs focus:ring-0 w-24 text-slate-300" />
                             </div>
-                            {/* GEMINI KEY INPUT */}
                             <div className="flex items-center gap-2 px-3 bg-slate-950/50 rounded h-10 w-full sm:w-auto border border-slate-800">
                                 <Cpu size={14} className={geminiKey ? "text-indigo-400" : "text-slate-500"} />
-                                <input type="password" placeholder="Gemini Key" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} className="bg-transparent border-none text-xs focus:ring-0 w-32 text-slate-300 placeholder-slate-600" />
+                                <input type="password" placeholder="Gemini Key" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} className="bg-transparent border-none text-xs focus:ring-0 w-24 text-slate-300" />
                             </div>
-                            <button onClick={fetchOverview} disabled={isLoading || !apiKey} className="p-2 h-10 w-10 flex items-center justify-center hover:bg-slate-800 rounded-md text-slate-400 hover:text-white transition-colors disabled:opacity-50">
-                                <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
-                            </button>
+                            <button onClick={fetchOverview} disabled={isLoading || !apiKey} className="p-2 h-10 w-10 flex items-center justify-center hover:bg-slate-800 rounded-md text-slate-400 hover:text-white transition-colors disabled:opacity-50"><RefreshCw size={16} className={isLoading ? "animate-spin" : ""} /></button>
                         </div>
                     </header>
 
@@ -547,7 +538,7 @@
                             <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-slate-900/50 p-2 rounded-xl">
                                 <div className="flex gap-2 w-full md:w-auto">
                                     {['dashboard', 'predictions', 'watchlist'].map(tab => (
-                                        <button key={tab} onClick={() => { setActiveTab(tab); setSelectedItem(null); setChartData([]); }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-colors flex-1 md:flex-none ${activeTab === tab ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}>{tab === 'dashboard' ? 'Coins' : tab}</button>
+                                        <button key={tab} onClick={() => { setActiveTab(tab); setSelectedItem(null); setChartData([]); }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-colors flex-1 md:flex-none ${activeTab === tab ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}>{tab === 'dashboard' ? 'Coins' : tab}</button>
                                     ))}
                                 </div>
                                 <div className="flex gap-2 w-full md:w-auto">
@@ -565,46 +556,34 @@
                             </div>
 
                             <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden max-h-[600px] overflow-y-auto">
-                                {activeTab === 'watchlist' ? (
-                                    <div className="divide-y divide-slate-800">
-                                        <div className="px-6 py-3 bg-indigo-500/10 text-xs font-bold text-indigo-400">WATCHED COINS</div>
-                                        {processedList.coins.length === 0 && <div className="p-4 text-center text-xs text-slate-600">No coins starred yet.</div>}
-                                        {processedList.coins.map(c => <ListItem key={c.symbol} item={c} type="coin" />)}
-                                        <div className="px-6 py-3 bg-indigo-500/10 text-xs font-bold text-indigo-400 border-t border-slate-800">WATCHED PREDICTIONS</div>
-                                        {processedList.preds.length === 0 && <div className="p-4 text-center text-xs text-slate-600">No predictions starred yet.</div>}
-                                        {processedList.preds.map(p => <ListItem key={p.id} item={p} type="prediction" />)}
-                                    </div>
-                                ) : (
-                                    <div className="divide-y divide-slate-800">
-                                        {activeTab === 'dashboard' && (<div className="px-6 py-3 bg-slate-950/50 text-xs font-semibold text-slate-500 flex justify-between sticky top-0 backdrop-blur-sm z-10"><span>ASSET</span><div className="flex gap-8"><span className="w-24 text-right">PRICE</span><span className="w-20 text-right">24H</span></div></div>)}
-                                        {processedList.length === 0 ? (<div className="p-12 text-center text-slate-500 text-sm flex flex-col items-center gap-2"><Search size={32} className="opacity-20" />{!apiKey ? "Enter API Key to load data." : "No results found matching your filters."}</div>) : (processedList.map((item) => (<ListItem key={activeTab === 'dashboard' ? item.symbol : item.id} item={item} type={activeTab === 'dashboard' ? 'coin' : 'prediction'} />)))}
-                                    </div>
-                                )}
+                                {processedList.length === 0 ? <div className="p-12 text-center text-slate-500 text-sm">No data found. Connect API.</div> : processedList.map((item) => <ListItem key={activeTab === 'dashboard' ? item.symbol : item.id} item={item} type={activeTab === 'dashboard' ? 'coin' : 'prediction'} />)}
                             </div>
                         </div>
 
-                        {/* RIGHT COL */}
+                        {/* RIGHT COL: ORACLE & TRADE */}
                         <div className="lg:col-span-1">
                             <div className="bg-slate-900 rounded-xl border border-slate-800 h-full sticky top-8 flex flex-col">
-                                <div className="p-6 border-b border-slate-800 bg-slate-800/30">
+                                <div className="p-6 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center">
                                     <div className="flex items-center gap-2 mb-1"><Brain className="text-indigo-400" size={20} /><h2 className="font-bold text-slate-100">Market Oracle</h2></div>
-                                    <p className="text-xs text-slate-500">Select an item to trigger analysis.</p>
+                                    {selectedItem && selectedItem.type === 'coin' && (
+                                        <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded">Holding: {holdings[selectedItem.symbol]?.qty ? holdings[selectedItem.symbol].qty.toFixed(4) : 0}</span>
+                                    )}
                                 </div>
                                 <div className="p-6 flex-1 flex flex-col">
                                     {!analysisResult ? (
                                         <div className="flex-1 flex flex-col items-center justify-center text-slate-600 space-y-4 py-12">
-                                            <Zap size={48} className="opacity-20" /><p className="text-sm text-center max-w-[200px]">Waiting for selection...</p>
+                                            <Zap size={48} className="opacity-20" /><p className="text-sm text-center max-w-[200px]">Select item to analyze & trade.</p>
                                         </div>
                                     ) : (
                                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                             <div className="flex justify-between items-start">
-                                                <div><span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">{analysisResult.type}</span><h3 className="text-lg font-bold text-white mt-1 leading-tight">{analysisResult.target}</h3></div>
-                                                <div className="flex gap-2">
-                                                    <button onClick={runAiAnalysis} disabled={isAiLoading} className={`text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold transition-all ${isAiLoading ? "bg-indigo-500/20 text-indigo-300 cursor-not-allowed" : "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg"}`}>{isAiLoading ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}{isAiLoading ? "SCANNING..." : "AI DEEP SCAN"}</button>
-                                                </div>
+                                                <div><span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">{analysisResult.type}</span><h3 className="text-lg font-bold text-white mt-1">{analysisResult.target}</h3></div>
+                                                <button onClick={runAiAnalysis} disabled={isAiLoading} className={`text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold transition-all ${isAiLoading ? "bg-indigo-500/20" : "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg"}`}>{isAiLoading ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}{isAiLoading ? "SCAN" : "AI SCAN"}</button>
                                             </div>
+                                            
+                                            {/* CHART */}
                                             {isDetailLoading ? (<div className="h-40 bg-slate-950 rounded-lg flex items-center justify-center"><RefreshCw className="animate-spin text-slate-600" /></div>) : (
-                                                <div className="h-40 bg-slate-950 rounded-lg border border-slate-800 overflow-hidden relative">
+                                                <div className="h-48 bg-slate-950 rounded-lg border border-slate-800 overflow-hidden relative">
                                                     {chartData.length > 0 ? (
                                                         <ResponsiveContainer width="100%" height="100%">
                                                             <ComposedChart data={chartData}>
@@ -614,20 +593,41 @@
                                                                 <Bar yAxisId="right" dataKey="volume" fill="#475569" opacity={0.3} barSize={2} />
                                                                 <YAxis yAxisId="left" hide domain={['auto', 'auto']} />
                                                                 <Area yAxisId="left" type="monotone" dataKey="value" stroke={chartColors.stroke} strokeWidth={2} fill="url(#chartColor)" isAnimationActive={false} />
-                                                                {chartData.length > 0 && (<ReferenceLine yAxisId="left" y={chartData[0].value} stroke="#64748b" strokeDasharray="3 3" opacity={0.5} />)}
+                                                                <Line yAxisId="left" type="monotone" dataKey="sma" stroke="#a855f7" strokeWidth={1} dot={false} />
                                                             </ComposedChart>
                                                         </ResponsiveContainer>
                                                     ) : (<div className="flex items-center justify-center h-full text-xs text-slate-600">No chart data</div>)}
                                                 </div>
                                             )}
+
+                                            {/* RUG-O-METER */}
                                             <div className="bg-slate-950 rounded-lg p-4 border border-slate-800">
-                                                <div className="flex justify-between items-center mb-2"><span className="text-slate-400 text-sm">Signal</span><span className={`font-bold px-2 py-0.5 rounded text-sm ${analysisResult.sentiment.includes('Bullish') ? 'bg-emerald-500 text-white' : analysisResult.sentiment.includes('Bearish') ? 'bg-rose-500 text-white' : 'bg-slate-700 text-white'}`}>{analysisResult.sentiment}</span></div>
-                                                <div className="flex justify-between items-center"><span className="text-slate-400 text-sm">Rug Risk</span><span className={`font-mono text-sm ${analysisResult.riskScore > 70 ? 'text-rose-400' : 'text-emerald-400'}`}>{analysisResult.riskScore}/100</span></div>
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <span className="text-slate-400 text-sm">Rug Probability</span>
+                                                    <span className={`font-mono text-sm ${analysisResult.riskScore > 70 ? 'text-rose-400' : 'text-emerald-400'}`}>{analysisResult.riskScore}%</span>
+                                                </div>
+                                                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                                                    <div className={`h-full transition-all duration-1000 ${analysisResult.riskScore > 70 ? 'bg-rose-500' : analysisResult.riskScore > 40 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{width: `${analysisResult.riskScore}%`}}></div>
+                                                </div>
                                             </div>
-                                            <div className="space-y-2">
-                                                <div className="flex justify-between items-center"><h4 className="text-sm font-semibold text-slate-300">Prediction</h4>{!analysisResult.isAi && <button onClick={() => setShowResultModal(true)} className="text-[10px] text-indigo-400 hover:text-indigo-300">View Full</button>}</div>
-                                                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700/50"><div className="text-xl font-bold text-white mb-2">{analysisResult.prediction}</div><p className="text-xs text-slate-400 leading-relaxed">{analysisResult.details}</p></div>
+
+                                            {/* PREDICTION */}
+                                            <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700/50 flex items-center justify-between">
+                                                <div><div className="text-xs text-slate-400">ORACLE SAYS</div><div className="text-xl font-bold text-white">{analysisResult.prediction}</div></div>
+                                                <div className="text-right max-w-[150px]"><p className="text-xs text-slate-400 italic">"{analysisResult.details}"</p></div>
                                             </div>
+
+                                            {/* TRADING INTERFACE */}
+                                            {selectedItem && selectedItem.type === 'coin' && (
+                                                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                                                    <div className="col-span-2 relative">
+                                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"><DollarSign size={14}/></div>
+                                                        <input type="number" placeholder="Amount (USD)" value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:border-indigo-500 focus:ring-0" />
+                                                    </div>
+                                                    <button onClick={() => executeTrade('BUY')} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg transition-colors">BUY</button>
+                                                    <button onClick={() => executeTrade('SELL')} className="bg-rose-600 hover:bg-rose-500 text-white font-bold py-2 rounded-lg transition-colors">SELL</button>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
