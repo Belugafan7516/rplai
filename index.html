@@ -113,6 +113,7 @@
         // --- CONFIGURATION ---
         const TURNSTILE_SITE_KEY = "0x4AAAAAACZBwcHHoM4nJcWq"; 
         const REQUEST_LIMIT = 15;
+        const COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#06b6d4'];
 
         // --- COMPONENTS ---
 
@@ -160,10 +161,6 @@
             const proxyUrl = 'https://rplsend.powerstudios.workers.dev/?url=';
 
             // --- Wallet / Trading State ---
-            const [balance, setBalance] = useState(() => {
-                const val = parseFloat(localStorage.getItem('rugplay_balance'));
-                return isNaN(val) ? 10000 : val;
-            });
             const [holdings, setHoldings] = useState(() => safeJSONParse('rugplay_holdings', {}));
             const [transactions, setTransactions] = useState(() => safeJSONParse('rugplay_transactions', []));
             const [tradeAmount, setTradeAmount] = useState('');
@@ -196,7 +193,6 @@
             // --- Persistence ---
             useEffect(() => { localStorage.setItem('rugplay_watchlist', JSON.stringify(watchlist)); }, [watchlist]);
             useEffect(() => { localStorage.setItem('rugplay_gemini_key', geminiKey); }, [geminiKey]);
-            useEffect(() => { localStorage.setItem('rugplay_balance', balance); }, [balance]);
             useEffect(() => { localStorage.setItem('rugplay_holdings', JSON.stringify(holdings)); }, [holdings]);
             useEffect(() => { localStorage.setItem('rugplay_transactions', JSON.stringify(transactions)); }, [transactions]);
 
@@ -232,7 +228,7 @@
                 if (!selectedItem || selectedItem.type !== 'coin') return;
                 const amount = parseFloat(tradeAmount);
                 if (isNaN(amount) || amount <= 0) {
-                    setError("Please enter a valid amount.");
+                    setError("Please enter a valid USD amount.");
                     setShowErrorModal(true);
                     return;
                 }
@@ -252,12 +248,7 @@
                 };
 
                 if (action === 'BUY') {
-                    if (amount > balance) {
-                        setError("Insufficient funds!");
-                        setShowErrorModal(true);
-                        return;
-                    }
-                    setBalance(prev => prev - amount);
+                    // Just log the buy, no cash check
                     setHoldings(prev => {
                         const currentQty = prev[symbol]?.qty || 0;
                         const currentCost = prev[symbol]?.avgCost || 0;
@@ -266,13 +257,14 @@
                         return { ...prev, [symbol]: { qty: newTotalQty, avgCost: totalCost / newTotalQty } };
                     });
                 } else if (action === 'SELL') {
+                    // Check holdings
                     const currentHolding = holdings[symbol];
                     if (!currentHolding || qty > currentHolding.qty) {
-                        setError("Insufficient coin balance!");
+                        setError(`Insufficient coins! You only hold ${currentHolding?.qty.toFixed(4) || 0} ${symbol}.`);
                         setShowErrorModal(true);
                         return;
                     }
-                    setBalance(prev => prev + amount);
+                    
                     setHoldings(prev => {
                         const newQty = prev[symbol].qty - qty;
                         if (newQty <= 0.000001) {
@@ -289,22 +281,15 @@
             };
 
             const resetPortfolio = () => {
-                if(confirm("Reset entire portfolio budget to $10,000 and clear history?")) {
-                    setBalance(10000);
+                if(confirm("Clear all holdings and transaction history?")) {
                     setHoldings({});
                     setTransactions([]);
                 }
             };
 
-            const addFunds = () => {
-                const amount = prompt("Enter amount to deposit:", "1000");
-                if(amount && !isNaN(parseFloat(amount))) {
-                    setBalance(prev => prev + parseFloat(amount));
-                }
-            };
-
             const getPortfolioStats = () => {
                 let investedValue = 0;
+                let totalCostBasis = 0;
                 const assets = Object.keys(holdings).map(sym => {
                     const coin = marketData.find(c => c.symbol === sym);
                     const currentPrice = coin ? (parseFloat(coin.price || coin.currentPrice)) : (holdings[sym].avgCost);
@@ -313,7 +298,9 @@
                     const value = qty * currentPrice;
                     const costBasis = qty * avgCost;
                     const pnl = value - costBasis;
+                    
                     investedValue += value;
+                    totalCostBasis += costBasis;
                     
                     return {
                         symbol: sym,
@@ -328,7 +315,8 @@
                 
                 return {
                     investedValue,
-                    totalNetWorth: balance + investedValue,
+                    totalCostBasis,
+                    totalPnL: investedValue - totalCostBasis,
                     assets
                 };
             };
@@ -575,10 +563,13 @@
             const chartColors = chartData.length < 2 ? { stroke: '#6366f1' } : (chartData[chartData.length-1].value >= chartData[0].value ? { stroke: '#10b981' } : { stroke: '#f43f5e' });
             
             const portfolioStats = getPortfolioStats();
-            const allocationData = [
-                { name: 'Cash', value: balance, color: '#10b981' }, 
-                { name: 'Crypto', value: portfolioStats.investedValue, color: '#6366f1' } 
-            ];
+            
+            // Asset Allocation for Pie Chart
+            const allocationData = portfolioStats.assets.map((asset, index) => ({
+                name: asset.symbol,
+                value: asset.value,
+                color: COLORS[index % COLORS.length]
+            }));
 
             return (
                 <div className="min-h-screen bg-slate-950 text-slate-200 font-sans p-4 md:p-8 relative">
@@ -635,13 +626,13 @@
                     <header className="max-w-7xl mx-auto my-8 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div className="flex items-center gap-3">
                             <div className="bg-indigo-600 p-2 rounded-lg"><Activity className="text-white" size={24} /></div>
-                            <div><h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">Rugplay Analytics</h1><p className="text-slate-500 text-xs uppercase tracking-wider">v4.3 STABLE</p></div>
+                            <div><h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">Rugplay Analytics</h1><p className="text-slate-500 text-xs uppercase tracking-wider">v5.0 TRACKER</p></div>
                         </div>
                         <div className="flex flex-col sm:flex-row items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800">
                             <div className="flex items-center gap-3 px-4 py-2 bg-slate-950/80 rounded border border-slate-700">
                                 <Wallet size={16} className="text-emerald-400" />
-                                <div className="text-sm font-mono text-emerald-400">${balance.toLocaleString()} <span className="text-slate-500 text-xs">VIRTUAL</span></div>
-                                <div className="text-xs text-slate-500 border-l border-slate-700 pl-3">PnL: ${(getPortfolioValue() + balance - 10000).toFixed(2)}</div>
+                                <div className="text-sm font-mono text-emerald-400">${portfolioStats.investedValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span className="text-slate-500 text-xs">ASSETS</span></div>
+                                <div className={`text-xs border-l border-slate-700 pl-3 ${portfolioStats.totalPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>PnL: {portfolioStats.totalPnL >= 0 ? '+' : ''}${portfolioStats.totalPnL.toFixed(2)}</div>
                             </div>
                             <div className="flex items-center gap-2 px-3 bg-slate-950/50 rounded h-10 w-full sm:w-auto border border-slate-800">
                                 <Key size={14} className={apiKey ? "text-emerald-400" : "text-slate-500"} />
@@ -685,14 +676,13 @@
                                         {/* Summary Card */}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div className="bg-slate-950/50 rounded-xl border border-slate-800 p-6 flex flex-col justify-center">
-                                                <h3 className="text-slate-400 text-sm font-medium mb-1">Net Worth</h3>
-                                                <div className="text-3xl font-bold text-white">${portfolioStats.totalNetWorth.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                                                <div className={`text-sm mt-2 ${portfolioStats.totalNetWorth >= 10000 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                    {portfolioStats.totalNetWorth >= 10000 ? '+' : ''}${(portfolioStats.totalNetWorth - 10000).toFixed(2)} PnL
+                                                <h3 className="text-slate-400 text-sm font-medium mb-1">Total Asset Value</h3>
+                                                <div className="text-3xl font-bold text-white">${portfolioStats.investedValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                                <div className={`text-sm mt-2 ${portfolioStats.totalPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                    {portfolioStats.totalPnL >= 0 ? '+' : ''}${portfolioStats.totalPnL.toFixed(2)} Unrealized PnL
                                                 </div>
                                                 <div className="flex gap-2 mt-4">
-                                                    <button onClick={addFunds} className="bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 px-3 py-1.5 rounded text-xs font-bold transition-colors">Deposit Cash</button>
-                                                    <button onClick={resetPortfolio} className="bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 px-3 py-1.5 rounded text-xs font-bold transition-colors">Reset</button>
+                                                    <button onClick={resetPortfolio} className="bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 px-3 py-1.5 rounded text-xs font-bold transition-colors">Reset History</button>
                                                 </div>
                                             </div>
                                             
@@ -708,18 +698,17 @@
                                                         </PieChart>
                                                     </ResponsiveContainer>
                                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                                        <Wallet size={16} className="text-slate-500" />
+                                                        <PieChartIcon size={16} className="text-slate-500" />
                                                     </div>
                                                 </div>
-                                                <div className="flex-1 space-y-3">
-                                                    <div className="flex justify-between items-center">
-                                                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-sm text-slate-400">Cash</span></div>
-                                                        <span className="text-sm font-mono text-white">${balance.toLocaleString()}</span>
-                                                    </div>
-                                                    <div className="flex justify-between items-center">
-                                                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-indigo-500"></div><span className="text-sm text-slate-400">Invested</span></div>
-                                                        <span className="text-sm font-mono text-white">${portfolioStats.investedValue.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
-                                                    </div>
+                                                <div className="flex-1 space-y-2">
+                                                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-2">Top Holdings</div>
+                                                    {portfolioStats.assets.slice(0, 3).map((asset, i) => (
+                                                        <div key={asset.symbol} className="flex justify-between items-center text-xs">
+                                                            <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{backgroundColor: COLORS[i % COLORS.length]}}></div><span className="text-slate-300">{asset.symbol}</span></div>
+                                                            <span className="font-mono text-slate-400">${asset.value.toFixed(0)}</span>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             </div>
                                         </div>
@@ -736,7 +725,7 @@
                                             </div>
                                             <div className="divide-y divide-slate-800">
                                                 {portfolioStats.assets.length === 0 ? (
-                                                    <div className="p-8 text-center text-slate-500 text-sm">No assets in portfolio. Go to Dashboard to trade.</div>
+                                                    <div className="p-8 text-center text-slate-500 text-sm">No assets tracked. Log trades in Dashboard.</div>
                                                 ) : (
                                                     portfolioStats.assets.map(asset => (
                                                         <div key={asset.symbol} className="px-6 py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors">
@@ -872,10 +861,10 @@
                                                 <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
                                                     <div className="col-span-2 relative">
                                                         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"><DollarSign size={14}/></div>
-                                                        <input type="number" placeholder="Amount (USD)" value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:border-indigo-500 focus:ring-0" />
+                                                        <input type="number" placeholder="Enter Amount (USD)" value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:border-indigo-500 focus:ring-0" />
                                                     </div>
-                                                    <button onClick={() => executeTrade('BUY')} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg transition-colors">BUY</button>
-                                                    <button onClick={() => executeTrade('SELL')} className="bg-rose-600 hover:bg-rose-500 text-white font-bold py-2 rounded-lg transition-colors">SELL</button>
+                                                    <button onClick={() => executeTrade('BUY')} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg transition-colors">LOG BUY</button>
+                                                    <button onClick={() => executeTrade('SELL')} className="bg-rose-600 hover:bg-rose-500 text-white font-bold py-2 rounded-lg transition-colors">LOG SELL</button>
                                                 </div>
                                             )}
                                         </div>
@@ -898,5 +887,3 @@
     </script>
 </body>
 </html>
-
-
