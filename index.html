@@ -37,11 +37,10 @@
 
         import { 
             TrendingUp, Activity, AlertTriangle, Search, Zap, Brain, Lock, RefreshCw, 
-            BarChart2, X, Globe, Star, Filter, ArrowUpDown, Sparkles, ShieldCheck, Key, ShieldAlert, CheckCircle
+            BarChart2, X, Globe, Star, Filter, ArrowUpDown, Sparkles, ShieldCheck, Key, ShieldAlert, CheckCircle, Cpu
         } from 'https://esm.sh/lucide-react@0.344.0?deps=react@18.2.0';
 
         // --- CONFIGURATION ---
-        const GEMINI_API_KEY = "AIzaSyCvAK8qPAlTAhwideekzJoGyRQIjiWB0ek";
         const TURNSTILE_SITE_KEY = "1x00000000000000000000AA"; // Test Key (Always passes)
         const REQUEST_LIMIT = 10;
         // ---------------------
@@ -62,8 +61,6 @@
                         <div className="text-sm">
                             <strong className="font-bold text-amber-400 block mb-1">Local Environment Detected</strong>
                             Cloudflare Access protection requires deployment. 
-                            <br/>
-                            <span className="opacity-75">Also, ensure your Gemini API Key allows requests from localhost/file:// in Google Cloud Console.</span>
                         </div>
                         <button onClick={() => setIsVisible(false)} className="ml-auto text-amber-400 hover:text-white"><X size={18} /></button>
                     </div>
@@ -74,6 +71,8 @@
         const RugplayAnalyzer = () => {
             // --- Core State ---
             const [apiKey, setApiKey] = useState('rgpl_gdgTTwnlllKSXsFOcSeLkDpwkgPaWXiooomdppdeFOqOnpLgVjPipkMgjWLzIBcZ');
+            // Init Gemini Key from LocalStorage (Simulated Env Var)
+            const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('rugplay_gemini_key') || '');
             const proxyUrl = 'https://rplsend.powerstudios.workers.dev/?url=';
 
             // --- UI State ---
@@ -108,6 +107,7 @@
 
             // --- Persistence ---
             useEffect(() => { localStorage.setItem('rugplay_watchlist', JSON.stringify(watchlist)); }, [watchlist]);
+            useEffect(() => { localStorage.setItem('rugplay_gemini_key', geminiKey); }, [geminiKey]);
 
             const toggleWatchlist = (e, id) => {
                 e.stopPropagation();
@@ -135,7 +135,6 @@
 
             const handleTurnstileSuccess = (token) => {
                 console.log("Turnstile Verified:", token);
-                // In a real app, send token to backend. Here we just unlock.
                 setTimeout(() => {
                     setRequestCount(0);
                     setShowTurnstile(false);
@@ -274,8 +273,8 @@
                 
                 if (!checkRateLimit()) return;
 
-                if (!GEMINI_API_KEY) {
-                    setError("AI features require a Gemini API Key.");
+                if (!geminiKey) {
+                    setError("Please enter your Gemini API Key in the header.");
                     setShowErrorModal(true);
                     return;
                 }
@@ -286,7 +285,7 @@
                     const contextData = { item: selectedItem, recentChart: chartData.slice(-5) };
                     const prompt = `Analyze this game ${type} data as a cynical trader. Data: ${JSON.stringify(contextData)}. CRITICAL: The 'prediction' field must be ONE WORD ONLY: "BUY", "SELL", "YES", or "NO". Output JSON: { "sentiment": "Bullish"|"Bearish"|"Neutral", "riskScore": 0-100, "prediction": "BUY/SELL/YES/NO", "details": "Witty sentence max 15 words." }`;
 
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiKey}`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json" } })
@@ -522,13 +521,18 @@
                             <div className="bg-indigo-600 p-2 rounded-lg"><Activity className="text-white" size={24} /></div>
                             <div>
                                 <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">Rugplay Analytics</h1>
-                                <p className="text-slate-500 text-xs uppercase tracking-wider">v2.3 SECURE</p>
+                                <p className="text-slate-500 text-xs uppercase tracking-wider">v2.4 SECURE</p>
                             </div>
                         </div>
                         <div className="flex flex-col sm:flex-row items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800">
                             <div className="flex items-center gap-2 px-3 bg-slate-950/50 rounded h-10 w-full sm:w-auto border border-slate-800">
                                 <Key size={14} className={apiKey ? "text-emerald-400" : "text-slate-500"} />
-                                <input type="password" placeholder="API Key (rgpl_...)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="bg-transparent border-none text-xs focus:ring-0 w-32 text-slate-300 placeholder-slate-600" />
+                                <input type="password" placeholder="Rugplay Key (rgpl_...)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="bg-transparent border-none text-xs focus:ring-0 w-32 text-slate-300 placeholder-slate-600" />
+                            </div>
+                            {/* GEMINI KEY INPUT */}
+                            <div className="flex items-center gap-2 px-3 bg-slate-950/50 rounded h-10 w-full sm:w-auto border border-slate-800">
+                                <Cpu size={14} className={geminiKey ? "text-indigo-400" : "text-slate-500"} />
+                                <input type="password" placeholder="Gemini Key" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} className="bg-transparent border-none text-xs focus:ring-0 w-32 text-slate-300 placeholder-slate-600" />
                             </div>
                             <button onClick={fetchOverview} disabled={isLoading || !apiKey} className="p-2 h-10 w-10 flex items-center justify-center hover:bg-slate-800 rounded-md text-slate-400 hover:text-white transition-colors disabled:opacity-50">
                                 <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
