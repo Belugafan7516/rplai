@@ -8,15 +8,16 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Babel for JSX compilation in browser -->
+    <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Cloudflare Turnstile Script -->
+    <!-- Cloudflare Turnstile -->
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"></script>
 
     <!-- Custom Styles -->
     <style>
-        body { background-color: #020617; } /* slate-950 */
+        body { background-color: #020617; color: white; font-family: sans-serif; }
+        #root { min-height: 100vh; }
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
@@ -45,6 +46,21 @@
 <body>
     <div id="root"></div>
 
+    <!-- Error Handler Script -->
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            document.getElementById('root').innerHTML = `
+                <div style="padding: 20px; color: #f87171; text-align: center; margin-top: 50px;">
+                    <h2 style="font-size: 24px; margin-bottom: 10px;">⚠️ Application Crashed</h2>
+                    <p style="color: #cbd5e1;">${message}</p>
+                    <button onclick="localStorage.clear(); window.location.reload();" style="margin-top: 20px; padding: 10px 20px; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                        Clear Data & Reset
+                    </button>
+                </div>
+            `;
+        };
+    </script>
+
     <!-- Main Application Script -->
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef, useMemo } from 'https://esm.sh/react@18.2.0';
@@ -62,9 +78,18 @@
         // --- CONFIGURATION ---
         const TURNSTILE_SITE_KEY = "0x4AAAAAACZBwcHHoM4nJcWq"; 
         const REQUEST_LIMIT = 15;
-        // ---------------------
 
-        // --- Helper Component: News Ticker ---
+        // --- SAFE STORAGE PARSER (PREVENTS CRASHES) ---
+        const safeJSONParse = (key, fallback) => {
+            try {
+                const item = localStorage.getItem(key);
+                return item ? JSON.parse(item) : fallback;
+            } catch (e) {
+                console.warn(`Failed to load ${key}, using fallback.`, e);
+                return fallback;
+            }
+        };
+
         const NewsTicker = () => {
             const headlines = [
                 "BITCOIN CRASHES TO 100K THEN RECOVERS IN 2 SECONDS",
@@ -109,9 +134,12 @@
             const proxyUrl = 'https://rplsend.powerstudios.workers.dev/?url=';
 
             // --- Wallet / Trading State ---
-            const [balance, setBalance] = useState(() => parseFloat(localStorage.getItem('rugplay_balance')) || 10000);
-            const [holdings, setHoldings] = useState(() => JSON.parse(localStorage.getItem('rugplay_holdings')) || {});
-            const [transactions, setTransactions] = useState(() => JSON.parse(localStorage.getItem('rugplay_transactions')) || []);
+            const [balance, setBalance] = useState(() => {
+                const val = parseFloat(localStorage.getItem('rugplay_balance'));
+                return isNaN(val) ? 10000 : val;
+            });
+            const [holdings, setHoldings] = useState(() => safeJSONParse('rugplay_holdings', {}));
+            const [transactions, setTransactions] = useState(() => safeJSONParse('rugplay_transactions', []));
             const [tradeAmount, setTradeAmount] = useState('');
 
             // --- UI State ---
@@ -125,7 +153,7 @@
             // Feature States
             const [searchQuery, setSearchQuery] = useState('');
             const [sortOption, setSortOption] = useState('default');
-            const [watchlist, setWatchlist] = useState(() => JSON.parse(localStorage.getItem('rugplay_watchlist')) || []);
+            const [watchlist, setWatchlist] = useState(() => safeJSONParse('rugplay_watchlist', []));
 
             // Data
             const [marketData, setMarketData] = useState([]); 
@@ -153,6 +181,7 @@
 
             // --- Helpers ---
             const getUrl = (endpoint) => proxyUrl ? `${proxyUrl}${encodeURIComponent(endpoint)}` : endpoint;
+            
             const getHeaders = () => {
                 let cleanKey = apiKey.trim();
                 if (cleanKey.toLowerCase().startsWith('bearer ')) cleanKey = cleanKey.slice(7).trim();
@@ -186,7 +215,6 @@
                 const symbol = selectedItem.symbol;
                 const qty = amount / price;
 
-                // Log Transaction
                 const newTx = {
                     id: Date.now(),
                     type: action,
@@ -207,7 +235,6 @@
                     setHoldings(prev => {
                         const currentQty = prev[symbol]?.qty || 0;
                         const currentCost = prev[symbol]?.avgCost || 0;
-                        // Weighted average cost basis
                         const totalCost = (currentQty * currentCost) + amount;
                         const newTotalQty = currentQty + qty;
                         return { ...prev, [symbol]: { qty: newTotalQty, avgCost: totalCost / newTotalQty } };
@@ -254,7 +281,6 @@
                 let investedValue = 0;
                 const assets = Object.keys(holdings).map(sym => {
                     const coin = marketData.find(c => c.symbol === sym);
-                    // Fallback to average cost if market data unavailable (rare case in sim)
                     const currentPrice = coin ? (parseFloat(coin.price || coin.currentPrice)) : (holdings[sym].avgCost);
                     const qty = holdings[sym].qty;
                     const avgCost = holdings[sym].avgCost;
@@ -287,7 +313,6 @@
                 setIsLoading(true);
                 try {
                     const headers = getHeaders();
-                    // Parallel fetch
                     const [coinsRes, hopiumRes] = await Promise.all([
                         fetch(getUrl('https://rugplay.com/api/v1/top'), { headers }),
                         fetch(getUrl('https://rugplay.com/api/v1/hopium?status=ACTIVE&limit=20'), { headers })
@@ -295,10 +320,11 @@
 
                     if (coinsRes.status === 401 || hopiumRes.status === 401) throw new Error("Unauthorized: API Key rejected.");
                     
-                    const coinsJson = await coinsRes.json();
+                    // Safe parsing with fallbacks
+                    const coinsJson = coinsRes.ok ? await coinsRes.json() : { coins: [] };
                     setMarketData(coinsJson.coins || []);
 
-                    const hopiumJson = await hopiumRes.json();
+                    const hopiumJson = hopiumRes.ok ? await hopiumRes.json() : { questions: [] };
                     setPredictionMarkets(hopiumJson.questions || []);
                     
                     setError(null); 
@@ -327,7 +353,6 @@
                         if (!res.ok) throw new Error(`Error: ${res.status}`);
                         const data = await res.json();
                         
-                        // Calculate SMA
                         const smaPeriod = 5;
                         if (data.candlestickData) {
                             history = data.candlestickData.map((c, i, arr) => {
@@ -364,6 +389,7 @@
                     }
                     setChartData(history);
                 } catch (err) {
+                    console.error(err);
                     setError(err.message);
                     setShowErrorModal(true);
                 } finally {
@@ -569,7 +595,7 @@
                     <header className="max-w-7xl mx-auto my-8 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div className="flex items-center gap-3">
                             <div className="bg-indigo-600 p-2 rounded-lg"><Activity className="text-white" size={24} /></div>
-                            <div><h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">Rugplay Analytics</h1><p className="text-slate-500 text-xs uppercase tracking-wider">v4.1 WEALTH</p></div>
+                            <div><h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">Rugplay Analytics</h1><p className="text-slate-500 text-xs uppercase tracking-wider">v4.2 STABLE</p></div>
                         </div>
                         <div className="flex flex-col sm:flex-row items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800">
                             <div className="flex items-center gap-3 px-4 py-2 bg-slate-950/80 rounded border border-slate-700">
