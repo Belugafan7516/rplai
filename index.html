@@ -51,12 +51,12 @@
         import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
         
         import { 
-            ComposedChart, Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell 
+            ComposedChart, Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell, PieChart, Pie
         } from 'https://esm.sh/recharts@2.12.2?deps=react@18.2.0,react-dom@18.2.0';
 
         import { 
             TrendingUp, Activity, AlertTriangle, Search, Zap, Brain, Lock, RefreshCw, 
-            BarChart2, X, Globe, Star, Filter, ArrowUpDown, Sparkles, ShieldCheck, Key, ShieldAlert, CheckCircle, Cpu, Wallet, DollarSign, Briefcase
+            BarChart2, X, Globe, Star, Filter, ArrowUpDown, Sparkles, ShieldCheck, Key, ShieldAlert, CheckCircle, Cpu, Wallet, DollarSign, Briefcase, History, Trash2
         } from 'https://esm.sh/lucide-react@0.344.0?deps=react@18.2.0';
 
         // --- CONFIGURATION ---
@@ -111,6 +111,7 @@
             // --- Wallet / Trading State ---
             const [balance, setBalance] = useState(() => parseFloat(localStorage.getItem('rugplay_balance')) || 10000);
             const [holdings, setHoldings] = useState(() => JSON.parse(localStorage.getItem('rugplay_holdings')) || {});
+            const [transactions, setTransactions] = useState(() => JSON.parse(localStorage.getItem('rugplay_transactions')) || []);
             const [tradeAmount, setTradeAmount] = useState('');
 
             // --- UI State ---
@@ -143,6 +144,7 @@
             useEffect(() => { localStorage.setItem('rugplay_gemini_key', geminiKey); }, [geminiKey]);
             useEffect(() => { localStorage.setItem('rugplay_balance', balance); }, [balance]);
             useEffect(() => { localStorage.setItem('rugplay_holdings', JSON.stringify(holdings)); }, [holdings]);
+            useEffect(() => { localStorage.setItem('rugplay_transactions', JSON.stringify(transactions)); }, [transactions]);
 
             const toggleWatchlist = (e, id) => {
                 e.stopPropagation();
@@ -182,6 +184,18 @@
 
                 const price = parseFloat(selectedItem.price || selectedItem.currentPrice);
                 const symbol = selectedItem.symbol;
+                const qty = amount / price;
+
+                // Log Transaction
+                const newTx = {
+                    id: Date.now(),
+                    type: action,
+                    symbol: symbol,
+                    price: price,
+                    amount: amount,
+                    qty: qty,
+                    timestamp: new Date().toLocaleString()
+                };
 
                 if (action === 'BUY') {
                     if (amount > balance) {
@@ -193,23 +207,21 @@
                     setHoldings(prev => {
                         const currentQty = prev[symbol]?.qty || 0;
                         const currentCost = prev[symbol]?.avgCost || 0;
-                        const newQty = amount / price;
                         // Weighted average cost basis
                         const totalCost = (currentQty * currentCost) + amount;
-                        const newTotalQty = currentQty + newQty;
+                        const newTotalQty = currentQty + qty;
                         return { ...prev, [symbol]: { qty: newTotalQty, avgCost: totalCost / newTotalQty } };
                     });
                 } else if (action === 'SELL') {
                     const currentHolding = holdings[symbol];
-                    if (!currentHolding || (amount / price) > currentHolding.qty) {
+                    if (!currentHolding || qty > currentHolding.qty) {
                         setError("Insufficient coin balance!");
                         setShowErrorModal(true);
                         return;
                     }
-                    const sellQty = amount / price;
                     setBalance(prev => prev + amount);
                     setHoldings(prev => {
-                        const newQty = prev[symbol].qty - sellQty;
+                        const newQty = prev[symbol].qty - qty;
                         if (newQty <= 0.000001) {
                             const newHoldings = { ...prev };
                             delete newHoldings[symbol];
@@ -218,17 +230,55 @@
                         return { ...prev, [symbol]: { ...prev[symbol], qty: newQty } };
                     });
                 }
+                
+                setTransactions(prev => [newTx, ...prev]);
                 setTradeAmount('');
             };
 
-            const getPortfolioValue = () => {
-                let value = 0;
-                Object.keys(holdings).forEach(sym => {
+            const resetPortfolio = () => {
+                if(confirm("Reset entire portfolio budget to $10,000 and clear history?")) {
+                    setBalance(10000);
+                    setHoldings({});
+                    setTransactions([]);
+                }
+            };
+
+            const addFunds = () => {
+                const amount = prompt("Enter amount to deposit:", "1000");
+                if(amount && !isNaN(parseFloat(amount))) {
+                    setBalance(prev => prev + parseFloat(amount));
+                }
+            };
+
+            const getPortfolioStats = () => {
+                let investedValue = 0;
+                const assets = Object.keys(holdings).map(sym => {
                     const coin = marketData.find(c => c.symbol === sym);
-                    const price = coin ? (coin.price || coin.currentPrice) : 0;
-                    value += holdings[sym].qty * price;
+                    // Fallback to average cost if market data unavailable (rare case in sim)
+                    const currentPrice = coin ? (parseFloat(coin.price || coin.currentPrice)) : (holdings[sym].avgCost);
+                    const qty = holdings[sym].qty;
+                    const avgCost = holdings[sym].avgCost;
+                    const value = qty * currentPrice;
+                    const costBasis = qty * avgCost;
+                    const pnl = value - costBasis;
+                    investedValue += value;
+                    
+                    return {
+                        symbol: sym,
+                        qty,
+                        avgCost,
+                        currentPrice,
+                        value,
+                        pnl,
+                        pnlPercent: costBasis > 0 ? (pnl / costBasis) * 100 : 0
+                    };
                 });
-                return value;
+                
+                return {
+                    investedValue,
+                    totalNetWorth: balance + investedValue,
+                    assets
+                };
             };
 
             // --- Fetchers ---
@@ -282,7 +332,6 @@
                         if (data.candlestickData) {
                             history = data.candlestickData.map((c, i, arr) => {
                                 const volItem = data.volumeData ? data.volumeData.find(v => v.time === c.time) : null;
-                                // Simple Moving Average Logic
                                 let sma = null;
                                 if (i >= smaPeriod - 1) {
                                     const sum = arr.slice(i - (smaPeriod - 1), i + 1).reduce((acc, curr) => acc + curr.close, 0);
@@ -408,7 +457,10 @@
             const getProcessedList = () => {
                 let list = activeTab === 'dashboard' ? [...marketData] : 
                            activeTab === 'predictions' ? [...predictionMarkets] : 
-                           marketData.filter(c => watchlist.includes(c.symbol)); // Watchlist fallback
+                           activeTab === 'watchlist' ? marketData.filter(c => watchlist.includes(c.symbol)) : 
+                           [];
+
+                if (activeTab === 'portfolio') return [];
 
                 if (searchQuery) {
                     list = list.filter(item => (item.name || item.question || item.symbol || '').toLowerCase().includes(searchQuery.toLowerCase()));
@@ -470,6 +522,12 @@
 
             const processedList = getProcessedList();
             const chartColors = chartData.length < 2 ? { stroke: '#6366f1' } : (chartData[chartData.length-1].value >= chartData[0].value ? { stroke: '#10b981' } : { stroke: '#f43f5e' });
+            
+            const portfolioStats = getPortfolioStats();
+            const allocationData = [
+                { name: 'Cash', value: balance, color: '#10b981' }, 
+                { name: 'Crypto', value: portfolioStats.investedValue, color: '#6366f1' } 
+            ];
 
             return (
                 <div className="min-h-screen bg-slate-950 text-slate-200 font-sans p-4 md:p-8 relative">
@@ -511,7 +569,7 @@
                     <header className="max-w-7xl mx-auto my-8 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div className="flex items-center gap-3">
                             <div className="bg-indigo-600 p-2 rounded-lg"><Activity className="text-white" size={24} /></div>
-                            <div><h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">Rugplay Analytics</h1><p className="text-slate-500 text-xs uppercase tracking-wider">v3.0 ULTRA</p></div>
+                            <div><h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">Rugplay Analytics</h1><p className="text-slate-500 text-xs uppercase tracking-wider">v4.1 WEALTH</p></div>
                         </div>
                         <div className="flex flex-col sm:flex-row items-center gap-2 bg-slate-900 p-2 rounded-lg border border-slate-800">
                             <div className="flex items-center gap-3 px-4 py-2 bg-slate-950/80 rounded border border-slate-700">
@@ -537,7 +595,7 @@
                         <div className="lg:col-span-2 space-y-6">
                             <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-slate-900/50 p-2 rounded-xl">
                                 <div className="flex gap-2 w-full md:w-auto">
-                                    {['dashboard', 'predictions', 'watchlist'].map(tab => (
+                                    {['dashboard', 'predictions', 'watchlist', 'portfolio'].map(tab => (
                                         <button key={tab} onClick={() => { setActiveTab(tab); setSelectedItem(null); setChartData([]); }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-colors flex-1 md:flex-none ${activeTab === tab ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}>{tab === 'dashboard' ? 'Coins' : tab}</button>
                                     ))}
                                 </div>
@@ -556,7 +614,133 @@
                             </div>
 
                             <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden max-h-[600px] overflow-y-auto">
-                                {processedList.length === 0 ? <div className="p-12 text-center text-slate-500 text-sm">No data found. Connect API.</div> : processedList.map((item) => <ListItem key={activeTab === 'dashboard' ? item.symbol : item.id} item={item} type={activeTab === 'dashboard' ? 'coin' : 'prediction'} />)}
+                                {activeTab === 'portfolio' ? (
+                                    <div className="space-y-6 p-6">
+                                        {/* Summary Card */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="bg-slate-950/50 rounded-xl border border-slate-800 p-6 flex flex-col justify-center">
+                                                <h3 className="text-slate-400 text-sm font-medium mb-1">Net Worth</h3>
+                                                <div className="text-3xl font-bold text-white">${portfolioStats.totalNetWorth.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                                <div className={`text-sm mt-2 ${portfolioStats.totalNetWorth >= 10000 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                    {portfolioStats.totalNetWorth >= 10000 ? '+' : ''}${(portfolioStats.totalNetWorth - 10000).toFixed(2)} PnL
+                                                </div>
+                                                <div className="flex gap-2 mt-4">
+                                                    <button onClick={addFunds} className="bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 px-3 py-1.5 rounded text-xs font-bold transition-colors">Deposit Cash</button>
+                                                    <button onClick={resetPortfolio} className="bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 px-3 py-1.5 rounded text-xs font-bold transition-colors">Reset</button>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="bg-slate-950/50 rounded-xl border border-slate-800 p-6 flex items-center gap-6">
+                                                <div className="h-24 w-24 relative">
+                                                     <ResponsiveContainer width="100%" height="100%">
+                                                        <PieChart>
+                                                            <Pie data={allocationData} dataKey="value" innerRadius={25} outerRadius={40} stroke="none">
+                                                                {allocationData.map((entry, index) => (
+                                                                    <Cell key={`cell-${index}`} fill={entry.color} />
+                                                                ))}
+                                                            </Pie>
+                                                        </PieChart>
+                                                    </ResponsiveContainer>
+                                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                        <Wallet size={16} className="text-slate-500" />
+                                                    </div>
+                                                </div>
+                                                <div className="flex-1 space-y-3">
+                                                    <div className="flex justify-between items-center">
+                                                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-sm text-slate-400">Cash</span></div>
+                                                        <span className="text-sm font-mono text-white">${balance.toLocaleString()}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center">
+                                                        <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-indigo-500"></div><span className="text-sm text-slate-400">Invested</span></div>
+                                                        <span className="text-sm font-mono text-white">${portfolioStats.investedValue.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Holdings List */}
+                                        <div className="bg-slate-950/50 rounded-xl border border-slate-800 overflow-hidden">
+                                            <div className="px-6 py-3 bg-slate-900 text-xs font-bold text-slate-500 flex justify-between">
+                                                <span>ASSET</span>
+                                                <div className="flex gap-8 text-right">
+                                                    <span className="w-20">AVG BUY</span>
+                                                    <span className="w-20">PRICE</span>
+                                                    <span className="w-24">VALUE</span>
+                                                </div>
+                                            </div>
+                                            <div className="divide-y divide-slate-800">
+                                                {portfolioStats.assets.length === 0 ? (
+                                                    <div className="p-8 text-center text-slate-500 text-sm">No assets in portfolio. Go to Dashboard to trade.</div>
+                                                ) : (
+                                                    portfolioStats.assets.map(asset => (
+                                                        <div key={asset.symbol} className="px-6 py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-300">{asset.symbol[0]}</div>
+                                                                <div>
+                                                                    <div className="font-bold text-slate-200">{asset.symbol}</div>
+                                                                    <div className="text-xs text-slate-500">{asset.qty.toFixed(4)} Coins</div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex gap-8 text-right text-sm">
+                                                                <div className="w-20 font-mono text-slate-400">${asset.avgCost.toFixed(2)}</div>
+                                                                <div className="w-20 font-mono text-slate-200">${asset.currentPrice.toFixed(2)}</div>
+                                                                <div className="w-24">
+                                                                    <div className="font-mono text-white">${asset.value.toFixed(2)}</div>
+                                                                    <div className={`text-xs ${asset.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                                        {asset.pnl >= 0 ? '+' : ''}{asset.pnl.toFixed(2)} ({asset.pnlPercent.toFixed(1)}%)
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* TRANSACTION HISTORY */}
+                                        <div className="bg-slate-950/50 rounded-xl border border-slate-800 overflow-hidden">
+                                            <div className="px-6 py-3 bg-slate-900 text-xs font-bold text-slate-500 flex justify-between items-center">
+                                                <span className="flex items-center gap-2"><History size={14}/> TRADE HISTORY</span>
+                                                <button onClick={() => setTransactions([])} className="text-slate-600 hover:text-rose-400"><Trash2 size={12}/></button>
+                                            </div>
+                                            <div className="divide-y divide-slate-800 max-h-60 overflow-y-auto">
+                                                {transactions.length === 0 ? (
+                                                    <div className="p-4 text-center text-xs text-slate-500">No trading history yet.</div>
+                                                ) : (
+                                                    transactions.map(tx => (
+                                                        <div key={tx.id} className="px-6 py-3 flex items-center justify-between hover:bg-slate-800/30 text-xs">
+                                                            <div className="flex items-center gap-4">
+                                                                <span className="text-slate-500 font-mono w-24">{tx.timestamp.split(',')[1]}</span>
+                                                                <span className={`font-bold w-10 ${tx.type === 'BUY' ? 'text-emerald-400' : 'text-rose-400'}`}>{tx.type}</span>
+                                                                <span className="text-white font-bold">{tx.symbol}</span>
+                                                            </div>
+                                                            <div className="flex gap-6 text-right">
+                                                                <span className="text-slate-400 w-20">@ ${tx.price.toFixed(2)}</span>
+                                                                <span className="text-white font-mono w-20">${tx.amount.toFixed(2)}</span>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    activeTab === 'watchlist' ? (
+                                        <div className="divide-y divide-slate-800">
+                                            <div className="px-6 py-3 bg-indigo-500/10 text-xs font-bold text-indigo-400">WATCHED COINS</div>
+                                            {processedList.coins.length === 0 && <div className="p-4 text-center text-xs text-slate-600">No coins starred yet.</div>}
+                                            {processedList.coins.map(c => <ListItem key={c.symbol} item={c} type="coin" />)}
+                                            <div className="px-6 py-3 bg-indigo-500/10 text-xs font-bold text-indigo-400 border-t border-slate-800">WATCHED PREDICTIONS</div>
+                                            {processedList.preds.length === 0 && <div className="p-4 text-center text-xs text-slate-600">No predictions starred yet.</div>}
+                                            {processedList.preds.map(p => <ListItem key={p.id} item={p} type="prediction" />)}
+                                        </div>
+                                    ) : (
+                                        <div className="divide-y divide-slate-800">
+                                            {activeTab === 'dashboard' && (<div className="px-6 py-3 bg-slate-950/50 text-xs font-semibold text-slate-500 flex justify-between sticky top-0 backdrop-blur-sm z-10"><span>ASSET</span><div className="flex gap-8"><span className="w-24 text-right">PRICE</span><span className="w-20 text-right">24H</span></div></div>)}
+                                            {processedList.length === 0 ? (<div className="p-12 text-center text-slate-500 text-sm flex flex-col items-center gap-2"><Search size={32} className="opacity-20" />{!apiKey ? "Enter API Key to load data." : "No results found matching your filters."}</div>) : (processedList.map((item) => (<ListItem key={activeTab === 'dashboard' ? item.symbol : item.id} item={item} type={activeTab === 'dashboard' ? 'coin' : 'prediction'} />)))}
+                                        </div>
+                                    )
+                                )}
                             </div>
                         </div>
 
@@ -643,3 +827,5 @@
     </script>
 </body>
 </html>
+
+
